@@ -373,7 +373,7 @@ public class FilmDeltaSEPlugin extends ImdbPlugin {
 		try {
 			StringBuffer sb = new StringBuffer("http://cdon.se/search?q=");
 			sb.append(URLEncoder.encode(movieName, "UTF-8")); 
-			if(season != 0) {
+			if(season > 0) {
 				sb.append("+").append(URLEncoder.encode("säsong", "UTF-8"));
 				sb.append("+" + season);
 			}
@@ -381,8 +381,17 @@ public class FilmDeltaSEPlugin extends ImdbPlugin {
 			//find the movie url in the search result page
 			if (html.contains("/section-movie.gif\" alt=\"\" />")) {
 				int beginIndex = html.indexOf("/section-movie.gif\" alt=\"\" />")+28;
-				movieURL = HTMLTools.extractTag(html.substring(beginIndex), "<td class=\"title\">", 0);
-				logger.finest("Found movieURL: " + movieURL);
+				movieURL = HTMLTools.extractTag(html.substring(beginIndex), "<td class=\"title\">", 0);				
+            	//Split string to extract the url
+				if (movieURL.contains("http")) {
+					String[] splitMovieURL = movieURL.split("\\s");
+					movieURL = splitMovieURL[1].replaceAll("href|=|\"", "");
+					logger.finest("Found cdon movie url = " + movieURL);
+				} else {
+					movieURL = Movie.UNKNOWN; 
+					logger.finer("Error extracting movie url for: " + movieName);
+				}
+				
 			} else {
 				movieURL = Movie.UNKNOWN;
 				logger.finer("Error finding movieURL..");
@@ -400,11 +409,6 @@ public class FilmDeltaSEPlugin extends ImdbPlugin {
     	try {
     		//sanity check on result before trying to load details page from url
             if (!movieURL.isEmpty() && movieURL.contains("http")) {
-            	//Split string to extract the url
-            	String[] splitMovieURL = movieURL.split("\\s");
-            	movieURL = splitMovieURL[1].replaceAll("href|=|\"", "");
-            	logger.finest("found filmurl = " + movieURL);
-
             	//fetch movie page from cdon
             	StringBuffer buf = new StringBuffer(movieURL);
             	cdonMoviePage = webBrowser.request(buf.toString());
@@ -427,8 +431,10 @@ public class FilmDeltaSEPlugin extends ImdbPlugin {
 		
 		//check if there is an large front cover image for this movie
 		if (cdonMoviePage.contains("St&#246;rre framsida")) {
+			//first look for a large cover
 			cdonPosterURL = findUrlString("St&#246;rre framsida", htmlArray);
 		} else if(cdonMoviePage.contains("/media-dynamic/images/product/")){
+			//if not found look for a small cover
 			cdonPosterURL = findUrlString("/media-dynamic/images/product/", htmlArray);
 		} else {
 			logger.info("No CDON cover was found for movie: " + movieName);
