@@ -171,11 +171,6 @@ public class FilmdeltaSEPluginTest extends TestCase {
 			assertEquals("UNKNOWN", posterUrl);
 		}
 	}
-	public void testGetCdonPosterNotFound() {
-		if(!filmdeltaPlugin.isOffline()) {
-			//TODO
-		}
-	}
 	//Function tests - only work in offline mode
 	public void testGetCdonMovieUrlSuccess() {
 		if(filmdeltaPlugin.isOffline()) {
