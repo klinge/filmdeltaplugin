@@ -23,24 +23,22 @@ import com.moviejukebox.tools.PropertiesUtil;
  * Modified from imdb plugin and Kinopoisk plugin written by Yury Sidorov.
  * 
  * @author  johan.klinge
- * @version 0.4, 10th February 2009
+ * @version 0.4, 12th February 2009
  */
 public class FilmDeltaSEPlugin extends ImdbPlugin {
 
     public static String FILMDELTA_PLUGIN_ID = "filmdelta";
+    protected TheTvDBPlugin tvdb;
     
     //Get properties for plotlength and rating
     int preferredPlotLength = Integer.parseInt(PropertiesUtil.getProperty("filmdelta.plot.maxlength", "400"));
     String preferredRating = PropertiesUtil.getProperty("filmdelta.rating", "filmdelta");
     String getcdonposter = PropertiesUtil.getProperty("filmdelta.getcdonposter", "true");
-    
-    protected TheTvDBPlugin tvdb;
 
     public FilmDeltaSEPlugin() {
         super();
-        //preferredCountry = PropertiesUtil.getProperty("imdb.preferredCountry", "Sweden");
         tvdb = new TheTvDBPlugin(); 
-        logger.finest("Filmdelta plugin initialiserad OK");
+        logger.finest("Filmdelta plugin created..");
     }
 
     @Override
@@ -93,7 +91,6 @@ public class FilmDeltaSEPlugin extends ImdbPlugin {
         		mediaFile.setPosterURL(posterURL);
             }	
         }
-        
         return retval;
     }
 
@@ -147,12 +144,12 @@ public class FilmDeltaSEPlugin extends ImdbPlugin {
                 if (filmdeltaId.matches("\\d{3,}/[\\w-&;]+")) {
                     return filmdeltaId;
                 } else {
-                    logger.info("FilmDeltaSEPlugin - found a filmdeltaId but it's not valid. Id: " + filmdeltaId);
+                    logger.info("FilmDeltaSEPlugin: found a filmdeltaId but it's not valid. Id: " + filmdeltaId);
                 	return Movie.UNKNOWN;
                 }
             } else {
             	//no valid results for the search
-            	logger.info("FilmDeltaSEPlugin didn't find any matches for movie: \'" + movieName + "\' (try setting the filmdelta url in nfo file for better matches).");
+            	logger.info("No filmdelta.se matches found for movie: \'" + movieName + "\'");
             	return Movie.UNKNOWN;	     	
             }
 
@@ -355,19 +352,53 @@ public class FilmDeltaSEPlugin extends ImdbPlugin {
 	}
 
 	protected String getCDONPosterURL(String movieName, int season) {
+		String movieURL = Movie.UNKNOWN;
+		String cdonMoviePage = Movie.UNKNOWN;
 		String cdonPosterURL = Movie.UNKNOWN;
-        try {
-            //Search CDON to get an URL to the movie page        	
-        	StringBuffer sb = new StringBuffer("http://cdon.se/search?q=");
-            sb.append(URLEncoder.encode(movieName, "UTF-8")); 
-            
-            String xml = webBrowser.request(sb.toString());
-            
-            //Search the movie page at CDON to find 
-            //the url for the movie details page
-            int beginIndex = xml.indexOf("/section-movie.gif\" alt=\"\" />")+28;
-            String movieURL = HTMLTools.extractTag(xml.substring(beginIndex), "<td class=\"title\">", 0);
-            //sanity check on result before trying to load details page from url
+		
+		//search CDON to find the url for the movie details page
+		movieURL = getCdonMovieUrl(movieName, season);
+		//then fetch the movie detail page
+		cdonMoviePage = getCdonMovieDetailsPage(movieName, movieURL);		
+		//extract poster url and return it
+		cdonPosterURL = extractCdonPosterUrl(movieName, cdonMoviePage);
+		return cdonPosterURL; 
+	}
+
+	protected String getCdonMovieUrl(String movieName, int season) {
+		String html = Movie.UNKNOWN; 
+		String movieURL = Movie.UNKNOWN;
+		
+		//Search CDON to get an URL to the movie page        	
+		try {
+			StringBuffer sb = new StringBuffer("http://cdon.se/search?q=");
+			sb.append(URLEncoder.encode(movieName, "UTF-8")); 
+			if(season != 0) {
+				sb.append("+").append(URLEncoder.encode("säsong", "UTF-8"));
+				sb.append("+" + season);
+			}
+			html = webBrowser.request(sb.toString());
+			//find the movie url in the search result page
+			if (html.contains("/section-movie.gif\" alt=\"\" />")) {
+				int beginIndex = html.indexOf("/section-movie.gif\" alt=\"\" />")+28;
+				movieURL = HTMLTools.extractTag(html.substring(beginIndex), "<td class=\"title\">", 0);
+				logger.finest("Found movieURL: " + movieURL);
+			} else {
+				movieURL = Movie.UNKNOWN;
+				logger.finer("Error finding movieURL..");
+			}
+			return movieURL;
+		}
+		catch (Exception e) {
+            logger.severe("Error while retreiving CDON image for movie : " + movieName);
+            logger.severe("Error : " + e.getMessage());
+            return Movie.UNKNOWN;
+        }
+	}
+	protected String getCdonMovieDetailsPage(String movieName, String movieURL) {	
+		String cdonMoviePage;
+    	try {
+    		//sanity check on result before trying to load details page from url
             if (!movieURL.isEmpty() && movieURL.contains("http")) {
             	//Split string to extract the url
             	String[] splitMovieURL = movieURL.split("\\s");
@@ -376,48 +407,57 @@ public class FilmDeltaSEPlugin extends ImdbPlugin {
 
             	//fetch movie page from cdon
             	StringBuffer buf = new StringBuffer(movieURL);
-            	xml = webBrowser.request(buf.toString());
-            	
-            	//check if there is an large front cover image for this movie
-            	if (xml.indexOf("St&#246;rre framsida") != -1) {
-            		String[] htmlArray = xml.split("<");
-            		//all cdon pages don't look the same so
-            		//loop over the array to find the string with a link to an image
-            		String[] posterURL = null;
-            		int i = 0;
-            		for (String s : htmlArray) {
-            			if (s.contains("St&#246;rre framsida")) {
-            				//found a matching string!
-            				posterURL = htmlArray[i].split("\"|\\s");
-            				break;
-            			}
-            			i++;
-            		}            	
-            		//sanity check again (the found url should point to a jpg
-            		if (posterURL[2].contains(".jpg")) {
-            			cdonPosterURL = "http://cdon.se" + posterURL[2];
-                		logger.finest("posterURL = " + cdonPosterURL);	
-            		} else {
-            			logger.finer("Should have found CDON poster for: " + movieName + "but didn\'t");
-            			return Movie.UNKNOWN;
-            		}
-            		
-            	} else {
-                	//didn't find a page containing the text "storre framsida"
-            		logger.info("FilmDeltaSEPlugin: no CDON image found for movie: " + movieName);
-            		return Movie.UNKNOWN;
-            	}
+            	cdonMoviePage = webBrowser.request(buf.toString());
+            	return cdonMoviePage;
             } else {
             	//search didn't even find an url to the movie
-            	logger.finer("Error in fetching movie from CDON for movie: " + movieName);
+            	logger.finer("Error in fetching movie detail page from CDON for movie: " + movieName);
             	return Movie.UNKNOWN;
-            }
-            //finally return the image url
-            return cdonPosterURL;
-        } catch (Exception e) {
-            logger.severe("Error while retreiving CDON image for movie : " + movieName);
+            }    		
+    	} catch (Exception e) {
+    		logger.severe("Error while retreiving CDON image for movie : " + movieName);
             //logger.severe("Error : " + e.getMessage());
             return Movie.UNKNOWN;
-        }
+    	}
 	}
+	protected String extractCdonPosterUrl(String movieName, String cdonMoviePage) {
+		
+		String cdonPosterURL = Movie.UNKNOWN;
+		String[] htmlArray = cdonMoviePage.split("<");
+		
+		//check if there is an large front cover image for this movie
+		if (cdonMoviePage.contains("St&#246;rre framsida")) {
+			cdonPosterURL = findUrlString("St&#246;rre framsida", htmlArray);
+		} else if(cdonMoviePage.contains("/media-dynamic/images/product/")){
+			cdonPosterURL = findUrlString("/media-dynamic/images/product/", htmlArray);
+		} else {
+			logger.info("No CDON cover was found for movie: " + movieName);
+		}
+		return cdonPosterURL;
+	}
+
+	private String findUrlString(String searchString, String[] htmlArray) {
+		String result;
+		String[] posterURL = null;
+		//all cdon pages don't look the same so
+		//loop over the array to find the string with a link to an image
+		int i = 0;
+		for (String s : htmlArray) {
+			if (s.contains(searchString)) {
+				//found a matching string
+				posterURL = htmlArray[i].split("\"|\\s");
+				break;
+			}
+			i++;
+		}            	
+		//sanity check again (the found url should point to a jpg
+		if (posterURL.length > 2 || posterURL[2].contains(".jpg")) {
+			result = "http://cdon.se" + posterURL[2];
+			logger.finest("Found large cover: " + result);
+			return result; 
+		} else {
+			return Movie.UNKNOWN;
+		}
+	}
+	
 }
