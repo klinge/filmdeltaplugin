@@ -1,0 +1,1 @@
+Source code for the filmdelta plugin for yamj. This is a plugin that gets movie information in swedish from the site filmdelta.se. The plugin is for use with yamj (http://code.google.com/p/moviejukebox/).
